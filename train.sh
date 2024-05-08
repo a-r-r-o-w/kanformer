@@ -7,7 +7,7 @@ python3 main.py train \
   --vocab_tgt_size=5000 \
   --pad_src_idx=-1 \
   --pad_tgt_idx=-1 \
-  --embedding_size=512 \
+  --embedding_dim=512 \
   --query_key_dim=512 \
   --value_dim=512 \
   --num_heads=8 \

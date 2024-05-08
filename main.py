@@ -52,7 +52,7 @@ class CLI:
         vocab_tgt_size: int = 25000,
         pad_src_idx: int = 24999,
         pad_tgt_idx: int = 24999,
-        embedding_size: int = 512,  # `d_model` in paper
+        embedding_dim: int = 512,  # `d_model` in paper
         query_key_dim: int = 512,  # `d_k` in paper
         value_dim: int = 512,  # `d_v` in paper
         num_heads: int = 8,  # `h` in paper
@@ -230,7 +230,7 @@ class CLI:
             vocab_tgt_size=vocab_tgt_size,
             pad_src_idx=pad_src_idx,
             pad_tgt_idx=pad_tgt_idx,
-            embedding_size=embedding_size,
+            embedding_dim=embedding_dim,
             query_key_dim=query_key_dim,
             value_dim=value_dim,
             num_heads=num_heads,
@@ -259,7 +259,7 @@ class CLI:
             eps=1e-9,
         )
         # lr_scheduler = LRScheduler(
-        #     optimizer, embedding_size=embedding_size, warmup_steps=4000
+        #     optimizer, embedding_dim=embedding_dim, warmup_steps=4000
         # )
 
         criterion = nn.CrossEntropyLoss(ignore_index=pad_tgt_idx)
@@ -458,7 +458,7 @@ class CLI:
             vocab_tgt_size=config["vocab_tgt_size"],
             pad_src_idx=config["pad_src_idx"],
             pad_tgt_idx=config["pad_tgt_idx"],
-            embedding_size=config["embedding_size"],
+            embedding_dim=config["embedding_dim"],
             query_key_dim=config["query_key_dim"],
             value_dim=config["value_dim"],
             num_heads=config["num_heads"],
@@ -548,7 +548,7 @@ class CLI:
 
     def visualize_positional_encoding(
         self,
-        embedding_size: int = 64,
+        embedding_dim: int = 64,
         max_length: int = 64,
         *,
         save: bool = False,
@@ -557,7 +557,7 @@ class CLI:
         r"""Visualize positional encoding used in the paper.
 
         Args:
-            embedding_size:
+            embedding_dim:
                 The dimensionality of vector space embeddings (`d_model` in the paper)
             max_length:
                 Maximum sequence length of tokens
@@ -567,11 +567,11 @@ class CLI:
                 Path to file where plot is to be saved
         """
 
-        position_encoder = PositionalEncoding(embedding_size, max_length)
+        position_encoder = PositionalEncoding(embedding_dim, max_length)
         pe: np.ndarray = position_encoder.pe.detach().numpy()
 
         figsize = (
-            min(embedding_size // 8, 20),
+            min(embedding_dim // 8, 20),
             min(max_length // 8, 20),
         )
         plt.figure(figsize=figsize)

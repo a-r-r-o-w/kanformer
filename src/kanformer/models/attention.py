@@ -15,7 +15,7 @@ class ScaledDotProductAttention(nn.Module):
     r"""ScaledDotProductAttention (Section 3.2.1 of paper).
 
     Args:
-        embedding_size (`int`):
+        embedding_dim (`int`):
         temperature (`float`, *optional*):
     """
 
@@ -24,7 +24,7 @@ class ScaledDotProductAttention(nn.Module):
 
         # In the original paper, product of query and key_T are normalized by square root of
         # embedding size. Here, we allow for normalizing with a temperature value too. If
-        # temperature is not `None`, it will be used. Otherwise, square root of `embedding_size`
+        # temperature is not `None`, it will be used. Otherwise, square root of `embedding_dim`
         # will be used.
         self.query_key_dim = query_key_dim
 
@@ -69,7 +69,7 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int,  # `d_model` in paper
+        embedding_dim: int,  # `d_model` in paper
         query_key_dim: int,  # `d_k` in paper
         value_dim: int,  # `d_v` in paper
         num_heads: int,  # `h` in paper
@@ -79,7 +79,7 @@ class MultiHeadAttention(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.embedding_size = embedding_size
+        self.embedding_dim = embedding_dim
         self.query_key_dim = query_key_dim
         self.value_dim = value_dim
         self.num_heads = num_heads
@@ -87,12 +87,12 @@ class MultiHeadAttention(nn.Module):
         self.value_dim_per_head = value_dim // num_heads
 
         cls = get_model_cls(model_type, use_kan_bias)
-        self.q_proj = cls(self.embedding_size, self.query_key_dim, bias=False)
-        self.k_proj = cls(self.embedding_size, self.query_key_dim, bias=False)
-        self.v_proj = cls(self.embedding_size, self.value_dim, bias=False)
+        self.q_proj = cls(self.embedding_dim, self.query_key_dim, bias=False)
+        self.k_proj = cls(self.embedding_dim, self.query_key_dim, bias=False)
+        self.v_proj = cls(self.embedding_dim, self.value_dim, bias=False)
         self.attn = ScaledDotProductAttention(query_key_dim)
         self.ff_proj = cls(
-            self.value_dim, self.embedding_size, bias=use_final_linear_mha_bias
+            self.value_dim, self.embedding_dim, bias=use_final_linear_mha_bias
         )
 
     def forward(self, query: T, key: T, value: T, mask: Optional[T] = None) -> T:

@@ -61,19 +61,19 @@ class PositionalEncoding(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int,  # `d_model` in paper
+        embedding_dim: int,  # `d_model` in paper
         max_length: int = 10000,
     ) -> None:
         super().__init__()
 
-        self.embedding_size = embedding_size
+        self.embedding_dim = embedding_dim
         self.max_length = max_length
 
-        two_i = torch.arange(0, embedding_size, 2, dtype=torch.float32)
+        two_i = torch.arange(0, embedding_dim, 2, dtype=torch.float32)
         numerator = torch.arange(0, max_length, dtype=torch.float32).unsqueeze(1)
-        denominator = 10000.0 ** (two_i / embedding_size)
+        denominator = 10000.0 ** (two_i / embedding_dim)
 
-        self.pe = torch.zeros(max_length, embedding_size)
+        self.pe = torch.zeros(max_length, embedding_dim)
         self.pe[:, 0::2] = torch.sin(numerator / denominator)
         self.pe[:, 1::2] = torch.cos(numerator / denominator)
 
@@ -91,7 +91,7 @@ class EncoderBlock(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int,  # `d_model` in paper
+        embedding_dim: int,  # `d_model` in paper
         query_key_dim: int,  # `d_k` in paper
         value_dim: int,  # `d_v` in paper
         num_heads: int,  # `h` in paper
@@ -107,7 +107,7 @@ class EncoderBlock(nn.Module):
         super().__init__()
 
         self.mha = MultiHeadAttention(
-            embedding_size=embedding_size,
+            embedding_dim=embedding_dim,
             query_key_dim=query_key_dim,
             value_dim=value_dim,
             num_heads=num_heads,
@@ -117,10 +117,10 @@ class EncoderBlock(nn.Module):
         )
 
         self.dropout1 = nn.Dropout(dropout_rate)
-        self.norm1 = nn.LayerNorm(embedding_size)
+        self.norm1 = nn.LayerNorm(embedding_dim)
 
         self.pffn = PositionwiseFeedForward(
-            in_out_dim=embedding_size,
+            in_out_dim=embedding_dim,
             hidden_dim=ffn_hidden_dim,
             activation=ffn_activation,
             use_bias_1=use_ffn_bias_1,
@@ -129,7 +129,7 @@ class EncoderBlock(nn.Module):
             model_type=model_type,
         )
         self.dropout2 = nn.Dropout(dropout_rate)
-        self.norm2 = nn.LayerNorm(embedding_size)
+        self.norm2 = nn.LayerNorm(embedding_dim)
 
     def forward(self, x: T, mask: Optional[T] = None) -> T:
         residual = x
@@ -150,7 +150,7 @@ class DecoderBlock(nn.Module):
 
     def __init__(
         self,
-        embedding_size: int,  # `d_model` in paper
+        embedding_dim: int,  # `d_model` in paper
         query_key_dim: int,  # `d_k` in paper
         value_dim: int,  # `d_v` in paper
         num_heads: int,  # `h` in paper
@@ -169,7 +169,7 @@ class DecoderBlock(nn.Module):
         self.use_encoder_attn = use_encoder_attn
 
         self.mha1 = MultiHeadAttention(
-            embedding_size=embedding_size,
+            embedding_dim=embedding_dim,
             query_key_dim=query_key_dim,
             value_dim=value_dim,
             num_heads=num_heads,
@@ -178,11 +178,11 @@ class DecoderBlock(nn.Module):
             model_type=model_type,
         )
         self.dropout1 = nn.Dropout(dropout_rate)
-        self.norm1 = nn.LayerNorm(embedding_size)
+        self.norm1 = nn.LayerNorm(embedding_dim)
 
         if use_encoder_attn:
             self.mha2 = MultiHeadAttention(
-                embedding_size=embedding_size,
+                embedding_dim=embedding_dim,
                 query_key_dim=query_key_dim,
                 value_dim=value_dim,
                 num_heads=num_heads,
@@ -191,14 +191,14 @@ class DecoderBlock(nn.Module):
                 model_type=model_type,
             )
             self.dropout2 = nn.Dropout(dropout_rate)
-            self.norm2 = nn.LayerNorm(embedding_size)
+            self.norm2 = nn.LayerNorm(embedding_dim)
         else:
             self.mha2 = None
             self.dropout2 = None
             self.norm2 = None
 
         self.pffn = PositionwiseFeedForward(
-            in_out_dim=embedding_size,
+            in_out_dim=embedding_dim,
             hidden_dim=ffn_hidden_dim,
             activation=ffn_activation,
             use_bias_1=use_ffn_bias_1,
@@ -207,7 +207,7 @@ class DecoderBlock(nn.Module):
             model_type=model_type,
         )
         self.dropout3 = nn.Dropout(dropout_rate)
-        self.norm3 = nn.LayerNorm(embedding_size)
+        self.norm3 = nn.LayerNorm(embedding_dim)
 
     def forward(
         self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None
@@ -247,7 +247,7 @@ class EncoderDecoderTransformer(nn.Module):
         vocab_tgt_size: int,
         pad_src_idx: int,
         pad_tgt_idx: int,
-        embedding_size: int,  # `d_model` in paper
+        embedding_dim: int,  # `d_model` in paper
         query_key_dim: int,  # `d_k` in paper
         value_dim: int,  # `d_v` in paper
         num_heads: int,  # `h` in paper
@@ -267,14 +267,14 @@ class EncoderDecoderTransformer(nn.Module):
         self.pad_tgt_idx = pad_tgt_idx
 
         self.pe = PositionalEncoding(
-            embedding_size=embedding_size,
+            embedding_dim=embedding_dim,
             max_length=max_length,
         )
 
-        self.src_emb = nn.Embedding(vocab_src_size, embedding_size)
-        self.tgt_emb = nn.Embedding(vocab_tgt_size, embedding_size)
+        self.src_emb = nn.Embedding(vocab_src_size, embedding_dim)
+        self.tgt_emb = nn.Embedding(vocab_tgt_size, embedding_dim)
 
-        scale = torch.sqrt(torch.tensor(embedding_size, dtype=torch.float32))
+        scale = torch.sqrt(torch.tensor(embedding_dim, dtype=torch.float32))
         self.register_buffer("scale", scale)
         self.scale: T
 
@@ -284,7 +284,7 @@ class EncoderDecoderTransformer(nn.Module):
         self.encoder_blocks = nn.ModuleList(
             [
                 EncoderBlock(
-                    embedding_size=embedding_size,
+                    embedding_dim=embedding_dim,
                     query_key_dim=query_key_dim,
                     value_dim=value_dim,
                     num_heads=num_heads,
@@ -304,7 +304,7 @@ class EncoderDecoderTransformer(nn.Module):
         self.decoder_blocks = nn.ModuleList(
             [
                 DecoderBlock(
-                    embedding_size=embedding_size,
+                    embedding_dim=embedding_dim,
                     query_key_dim=query_key_dim,
                     value_dim=value_dim,
                     num_heads=num_heads,
@@ -322,7 +322,7 @@ class EncoderDecoderTransformer(nn.Module):
         )
 
         cls = get_model_cls(model_type, use_kan_bias)
-        self.linear = cls(embedding_size, vocab_tgt_size, bias=use_final_linear_bias)
+        self.linear = cls(embedding_dim, vocab_tgt_size, bias=use_final_linear_bias)
 
     def _get_src_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
         r"""Helper utility to get mask for padded tokens. Padded tokens should not be paid attention."""
@@ -404,7 +404,7 @@ class EncoderTransformer(nn.Module):
         num_encoder_layers: int,
         vocab_src_size: int,
         pad_src_idx: int,
-        embedding_size: int,  # `d_model` in paper
+        embedding_dim: int,  # `d_model` in paper
         query_key_dim: int,  # `d_k` in paper
         value_dim: int,  # `d_v` in paper
         num_heads: int,  # `h` in paper
@@ -423,21 +423,21 @@ class EncoderTransformer(nn.Module):
         self.pad_src_idx = pad_src_idx
 
         self.pe = PositionalEncoding(
-            embedding_size=embedding_size,
+            embedding_dim=embedding_dim,
             max_length=max_length,
         )
 
-        self.src_emb = nn.Embedding(vocab_src_size, embedding_size)
+        self.src_emb = nn.Embedding(vocab_src_size, embedding_dim)
         self.src_dropout = nn.Dropout(dropout_rate)
 
-        scale = torch.sqrt(torch.tensor(embedding_size, dtype=torch.float32))
+        scale = torch.sqrt(torch.tensor(embedding_dim, dtype=torch.float32))
         self.register_buffer("scale", scale)
         self.scale: T
 
         self.encoder_blocks = nn.ModuleList(
             [
                 EncoderBlock(
-                    embedding_size=embedding_size,
+                    embedding_dim=embedding_dim,
                     query_key_dim=query_key_dim,
                     value_dim=value_dim,
                     num_heads=num_heads,
@@ -475,7 +475,7 @@ class DecoderTransformer(nn.Module):
         num_decoder_layers: int,
         vocab_tgt_size: int,
         pad_tgt_idx: int,
-        embedding_size: int,  # `d_model` in paper
+        embedding_dim: int,  # `d_model` in paper
         query_key_dim: int,  # `d_k` in paper
         value_dim: int,  # `d_v` in paper
         num_heads: int,  # `h` in paper
@@ -494,21 +494,21 @@ class DecoderTransformer(nn.Module):
         self.pad_tgt_idx = pad_tgt_idx
 
         self.pe = PositionalEncoding(
-            embedding_size=embedding_size,
+            embedding_dim=embedding_dim,
             max_length=max_length,
         )
 
-        self.tgt_emb = nn.Embedding(vocab_tgt_size, embedding_size)
+        self.tgt_emb = nn.Embedding(vocab_tgt_size, embedding_dim)
         self.tgt_dropout = nn.Dropout(dropout_rate)
 
-        scale = torch.sqrt(torch.tensor(embedding_size, dtype=torch.float32))
+        scale = torch.sqrt(torch.tensor(embedding_dim, dtype=torch.float32))
         self.register_buffer("scale", scale)
         self.scale: T
 
         self.decoder_blocks = nn.ModuleList(
             [
                 DecoderBlock(
-                    embedding_size=embedding_size,
+                    embedding_dim=embedding_dim,
                     query_key_dim=query_key_dim,
                     value_dim=value_dim,
                     num_heads=num_heads,
@@ -527,7 +527,7 @@ class DecoderTransformer(nn.Module):
         )
 
         cls = get_model_cls(model_type, use_kan_bias)
-        self.linear = cls(embedding_size, vocab_tgt_size, bias=use_final_linear_bias)
+        self.linear = cls(embedding_dim, vocab_tgt_size, bias=use_final_linear_bias)
 
     def _get_tgt_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
         seq_length = x.size(1)

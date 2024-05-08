@@ -3,8 +3,10 @@ from .models.lr_scheduler import LRScheduler
 from .models.transformer import (
     PositionalEncoding,
     PositionwiseFeedForward,
-    EncoderBlock,
     DecoderBlock,
+    EncoderBlock,
+    DecoderTransformer,
+    EncoderTransformer,
     EncoderDecoderTransformer,
 )
 from .config import ModelType
