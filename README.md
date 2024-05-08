@@ -1,6 +1,8 @@
 # kanformer
 
-Kolomogorov-Arnold networks were recently proposed as a promising alternative to MLPs. This repository naively replaces linear layers of the original transformer implementation with KANLinear layers in a naive manner. This repository is meant as toy playground for experimentation as I work my way through understand more about KANs.
+Kolomogorov-Arnold networks were recently proposed as a promising alternative to MLPs. This repository naively replaces linear layers of the [original transformer](https://arxiv.org/abs/1706.03762) implementation with KANLinear layers.
+
+This repository is a toy playground for experimentation as I work my way through understanding more about KANs. I have a few ideas based on my current understanding on improving the architecture but so far everything performs worse in comparison to the original transformer with similar-ish parameter count. My next steps are to convert my dirty implementation of HF transformers GPT-KAN that looked somewhat promising and make available soon hopefully. Feel free to contribute if you find this interesting.
 
 First run after making the KAN linear replacement:
 
@@ -153,3 +155,14 @@ Generated token indices: [0, 73, 93, 71, 731, 87, 90, 735, 995, 147, 207, 73, 11
 - [ ] GPT and BERT variants among other common configs
 - [ ] Improve docs
 - [ ] Tests
+
+```
+@misc{liu2024kan,
+      title={KAN: Kolmogorov-Arnold Networks}, 
+      author={Ziming Liu and Yixuan Wang and Sachin Vaidya and Fabian Ruehle and James Halverson and Marin Soljačić and Thomas Y. Hou and Max Tegmark},
+      year={2024},
+      eprint={2404.19756},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
+}
+```
