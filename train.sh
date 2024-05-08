@@ -11,7 +11,7 @@ python3 main.py train \
   --query_key_dim=512 \
   --value_dim=512 \
   --num_heads=8 \
-  --ffn_hidden_dim=1024 \
+  --ffn_hidden_dim=768 \
   --ffn_activation="relu" \
   --use_kan_bias \
   --use_ffn_bias_1 \

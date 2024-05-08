@@ -426,7 +426,7 @@ class CLI:
 
         torch.save(
             transformer.state_dict(),
-            os.path.join(experiment_dir, "transformer_final.pth"),
+            os.path.join(experiment_dir, f"{experiment_name}_final.pth"),
         )
 
         tokenizer_en.save(os.path.join(experiment_dir, "tokenizer_en.json"))
