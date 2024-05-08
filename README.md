@@ -77,8 +77,6 @@ output = model(en_tensors, de_tensors)
 print(output.shape)  # (batch_size, seq_length, vocab_tgt_size)
 ```
 
-**Training:** 
-
 <details>
 <summary> Training </summary>
 
