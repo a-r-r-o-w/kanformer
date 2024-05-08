@@ -3,4 +3,4 @@
 	url = https://github.com/KindXiaoming/pykan
 [submodule "src/efficient-kan"]
 	path = src/efficient_kan
-	url = https://github.com/Blealtan/efficient-kan
+	url = https://github.com/a-r-r-o-w/efficient-kan
