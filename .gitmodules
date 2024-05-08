@@ -1,0 +1,6 @@
+[submodule "src/pykan"]
+	path = src/pykan
+	url = https://github.com/KindXiaoming/pykan
+[submodule "src/efficient-kan"]
+	path = src/efficient_kan
+	url = https://github.com/Blealtan/efficient-kan
