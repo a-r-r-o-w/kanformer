@@ -12,21 +12,43 @@ T = torch.FloatTensor
 
 
 def get_activation(name: str, **kwargs) -> nn.Module:
-    if name == "relu":
+    if name == "relu" or name == "reglu":
         return nn.ReLU(**kwargs)
-    elif name == "gelu":
+    elif name == "gelu" or name == "geglu":
         return nn.GELU(**kwargs)
-    elif name == "silu" or name == "swish":
+    elif name == "silu" or name == "swish" or name == "swiglu":
         return nn.SiLU(**kwargs)
+    elif name == "sigmoid" or name == "glu":
+        return nn.Sigmoid()
+    elif name == "tanh":
+        return nn.Tanh(**kwargs)
+    elif name == "elu":
+        return nn.ELU(**kwargs)
     elif name == "leaky_relu":
         return nn.LeakyReLU(**kwargs)
     raise ValueError(f"{name} is not a supported activation")
+
+
+def _is_glu_activation(activation: str) -> bool:
+    return activation in ["glu", "reglu", "geglu", "swiglu"]
 
 
 class PositionwiseFeedForward(nn.Module):
     r"""Position-wise Feed-forward Network (section 3.3 in paper).
 
     Args:
+        in_out_dim (`int`):
+            The dimension of the input and output vectors.
+        hidden_dim (`int`):
+            The dimension of the hidden layer.
+        activation (`str`, optional):
+            The activation function to use. Defaults to `"relu"`.
+        dropout_rate (`float`, optional):
+            The dropout rate to use. Defaults to `0.1`.
+        use_bias (`bool`, optional):
+            Whether to use bias in the linear layers. Defaults to `True`.
+        model_type (`ModelType`, optional):
+            The type of model to use. Defaults to `ModelType.MLP`.
     """
 
     def __init__(
@@ -34,22 +56,41 @@ class PositionwiseFeedForward(nn.Module):
         in_out_dim: int,
         hidden_dim: int,
         activation: str = "relu",
-        use_bias_1: bool = True,
-        use_bias_2: bool = True,
-        use_kan_bias: bool = True,
+        dropout_rate: float = 0.1,
+        use_bias: bool = True,
         model_type: ModelType = ModelType.MLP,
     ) -> None:
         super().__init__()
 
-        cls = get_model_cls(model_type, use_kan_bias)
-        self.linear_1 = cls(in_out_dim, hidden_dim, bias=use_bias_1)
-        self.linear_2 = cls(hidden_dim, in_out_dim, bias=use_bias_2)
-        self.activation = get_activation(activation)
+        self.in_out_dim = in_out_dim
+        self.hidden_dim = hidden_dim
+        self.activation = activation
+        self.use_bias = use_bias
+
+        cls = get_model_cls(model_type, use_bias)
+        self.in_proj = cls(in_out_dim, hidden_dim, bias=use_bias)
+        self.out_proj = cls(hidden_dim, in_out_dim, bias=use_bias)
+        self.gates = (
+            cls(in_out_dim, hidden_dim, bias=use_bias)
+            if _is_glu_activation(activation)
+            else None
+        )
+
+        self.dropout = nn.Dropout(dropout_rate)
+        self.act = get_activation(activation)
 
     def forward(self, x: T) -> T:
-        x = self.linear_1(x)
-        x = self.activation(x)
-        x = self.linear_2(x)
+        if self.gates is None:
+            in_proj = self.in_proj(x)
+            x = self.act(in_proj)
+        else:
+            in_proj = self.in_proj(x)
+            gate = self.gates(x)
+            x = self.act(gate) * in_proj
+
+        x = self.dropout(x)
+        x = self.out_proj(x)
+
         return x
 
 
@@ -99,8 +140,7 @@ class EncoderBlock(nn.Module):
         ffn_activation: str = "relu",
         use_kan_bias: bool = True,
         use_final_linear_mha_bias: bool = False,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         dropout_rate: float = 0.1,
         model_type: ModelType = ModelType.MLP,
     ) -> None:
@@ -123,9 +163,8 @@ class EncoderBlock(nn.Module):
             in_out_dim=embedding_dim,
             hidden_dim=ffn_hidden_dim,
             activation=ffn_activation,
-            use_bias_1=use_ffn_bias_1,
-            use_bias_2=use_ffn_bias_2,
-            use_kan_bias=use_kan_bias,
+            dropout_rate=dropout_rate,
+            use_bias=use_pffn_bias,
             model_type=model_type,
         )
         self.dropout2 = nn.Dropout(dropout_rate)
@@ -158,8 +197,7 @@ class DecoderBlock(nn.Module):
         ffn_activation: str = "relu",
         use_kan_bias: bool = True,
         use_final_linear_mha_bias: bool = False,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         dropout_rate: float = 0.1,
         model_type: ModelType = ModelType.MLP,
         use_encoder_attn: bool = True,
@@ -201,9 +239,8 @@ class DecoderBlock(nn.Module):
             in_out_dim=embedding_dim,
             hidden_dim=ffn_hidden_dim,
             activation=ffn_activation,
-            use_bias_1=use_ffn_bias_1,
-            use_bias_2=use_ffn_bias_2,
-            use_kan_bias=use_kan_bias,
+            dropout_rate=dropout_rate,
+            use_bias=use_pffn_bias,
             model_type=model_type,
         )
         self.dropout3 = nn.Dropout(dropout_rate)
@@ -254,8 +291,7 @@ class EncoderDecoderTransformer(nn.Module):
         ffn_hidden_dim: int,
         ffn_activation: str = "relu",
         use_kan_bias: bool = True,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         use_final_linear_bias: bool = False,
         dropout_rate: float = 0.1,
         max_length: int = 10000,
@@ -292,8 +328,7 @@ class EncoderDecoderTransformer(nn.Module):
                     ffn_activation=ffn_activation,
                     use_kan_bias=use_kan_bias,
                     use_final_linear_mha_bias=use_final_linear_bias,
-                    use_ffn_bias_1=use_ffn_bias_1,
-                    use_ffn_bias_2=use_ffn_bias_2,
+                    use_pffn_bias=use_pffn_bias,
                     dropout_rate=dropout_rate,
                     model_type=model_type,
                 )
@@ -312,8 +347,7 @@ class EncoderDecoderTransformer(nn.Module):
                     ffn_activation=ffn_activation,
                     use_kan_bias=use_kan_bias,
                     use_final_linear_mha_bias=use_final_linear_bias,
-                    use_ffn_bias_1=use_ffn_bias_1,
-                    use_ffn_bias_2=use_ffn_bias_2,
+                    use_pffn_bias=use_pffn_bias,
                     dropout_rate=dropout_rate,
                     model_type=model_type,
                 )
@@ -411,8 +445,7 @@ class EncoderTransformer(nn.Module):
         ffn_hidden_dim: int,
         ffn_activation: str = "relu",
         use_kan_bias: bool = True,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         use_final_linear_bias: bool = False,
         dropout_rate: float = 0.1,
         max_length: int = 10000,
@@ -445,8 +478,7 @@ class EncoderTransformer(nn.Module):
                     ffn_activation=ffn_activation,
                     use_kan_bias=use_kan_bias,
                     use_final_linear_mha_bias=use_final_linear_bias,
-                    use_ffn_bias_1=use_ffn_bias_1,
-                    use_ffn_bias_2=use_ffn_bias_2,
+                    use_pffn_bias=use_pffn_bias,
                     dropout_rate=dropout_rate,
                     model_type=model_type,
                 )
@@ -482,8 +514,7 @@ class DecoderTransformer(nn.Module):
         ffn_hidden_dim: int,
         ffn_activation: str = "relu",
         use_kan_bias: bool = True,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         use_final_linear_bias: bool = False,
         dropout_rate: float = 0.1,
         max_length: int = 10000,
@@ -516,8 +547,7 @@ class DecoderTransformer(nn.Module):
                     ffn_activation=ffn_activation,
                     use_kan_bias=use_kan_bias,
                     use_final_linear_mha_bias=use_final_linear_bias,
-                    use_ffn_bias_1=use_ffn_bias_1,
-                    use_ffn_bias_2=use_ffn_bias_2,
+                    use_pffn_bias=use_pffn_bias,
                     dropout_rate=dropout_rate,
                     model_type=model_type,
                     use_encoder_attn=False,
