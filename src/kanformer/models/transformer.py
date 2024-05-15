@@ -98,6 +98,10 @@ class PositionalEncoding(nn.Module):
     r"""Positional Encoding (Section 3.5 of paper).
 
     Args:
+        embedding_dim (`int`):
+            The dimension of the embedding space (d_model in paper).
+        max_length (`int`, optional):
+            The maximum length of the sequence. Defaults to `10000`.
     """
 
     def __init__(
@@ -128,6 +132,28 @@ class EncoderBlock(nn.Module):
     r"""A single encoder block as shown in Figure 1 of the paper.
 
     Args:
+        embedding_dim (`int`):
+            The dimension of the embedding space (d_model in paper).
+        query_key_dim (`int`):
+            The dimension of the query and key vectors (d_k in paper).
+        value_dim (`int`):
+            The dimension of the value vectors (d_v in paper).
+        num_heads (`int`):
+            The number of attention heads (h in paper).
+        ffn_hidden_dim (`int`):
+            The dimension of the hidden layer in the feed-forward network.
+        ffn_activation (`str`, optional):
+            The activation function to use in the feed-forward network. Defaults to `"relu"`.
+        use_kan_bias (`bool`, optional):
+            Whether to use KAN bias. Defaults to `True`.
+        use_final_linear_mha_bias (`bool`, optional):
+            Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
+        use_pffn_bias (`bool`, optional):
+            Whether to use bias in the feed-forward network. Defaults to `True`.
+        dropout_rate (`float`, optional):
+            The dropout rate to use. Defaults to `0.1`.
+        model_type (`ModelType`, optional):
+            The type of model to use. Defaults to `ModelType.MLP`.
     """
 
     def __init__(
@@ -185,6 +211,30 @@ class DecoderBlock(nn.Module):
     r"""A single decoder block as shown in Figure 1 of the paper.
 
     Args:
+        embedding_dim (`int`):
+            The dimension of the embedding space (d_model in paper).
+        query_key_dim (`int`):
+            The dimension of the query and key vectors (d_k in paper).
+        value_dim (`int`):
+            The dimension of the value vectors (d_v in paper).
+        num_heads (`int`):
+            The number of attention heads (h in paper).
+        ffn_hidden_dim (`int`):
+            The dimension of the hidden layer in the feed-forward network.
+        ffn_activation (`str`, optional):
+            The activation function to use in the feed-forward network. Defaults to `"relu"`.
+        use_kan_bias (`bool`, optional):
+            Whether to use KAN bias. Defaults to `True`.
+        use_final_linear_mha_bias (`bool`, optional):
+            Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
+        use_pffn_bias (`bool`, optional):
+            Whether to use bias in the feed-forward network. Defaults to `True`.
+        dropout_rate (`float`, optional):
+            The dropout rate to use. Defaults to `0.1`.
+        model_type (`ModelType`, optional):
+            The type of model to use. Defaults to `ModelType.MLP`.
+        use_encoder_attn (`bool`, optional):
+            Whether to use encoder hidden states and perform attention with them. Defaults to `True`.
     """
 
     def __init__(
@@ -247,7 +297,11 @@ class DecoderBlock(nn.Module):
         self.norm3 = nn.LayerNorm(embedding_dim)
 
     def forward(
-        self, x: T, enc_x: T, mask: Optional[T] = None, dec_enc_mask: Optional[T] = None
+        self,
+        x: T,
+        enc_x: T = None,
+        mask: Optional[T] = None,
+        dec_enc_mask: Optional[T] = None,
     ) -> T:
         residual = x
         x = self.mha1(x, x, x, mask)
@@ -264,7 +318,87 @@ class DecoderBlock(nn.Module):
         return x
 
 
-class EncoderDecoderTransformer(nn.Module):
+class MaskedBlock(nn.Module):
+    r"""A single unassuming masked block that can be used in any model configuration. It
+    is essentially same as the EncoderBlock and consists of a multi-head attention layer
+    followed by a position-wise feed-forward network, and normalization after each sublayer.
+
+    Args:
+        embedding_dim (`int`):
+            The dimension of the embedding space (d_model in paper).
+        query_key_dim (`int`):
+            The dimension of the query and key vectors (d_k in paper).
+        value_dim (`int`):
+            The dimension of the value vectors (d_v in paper).
+        num_heads (`int`):
+            The number of attention heads (h in paper).
+        ffn_hidden_dim (`int`):
+            The dimension of the hidden layer in the feed-forward network.
+        ffn_activation (`str`, optional):
+            The activation function to use in the feed-forward network. Defaults to `"relu"`.
+        use_kan_bias (`bool`, optional):
+            Whether to use KAN bias. Defaults to `True`.
+        use_final_linear_mha_bias (`bool`, optional):
+            Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
+        use_pffn_bias (`bool`, optional):
+            Whether to use bias in the feed-forward network. Defaults to `True`.
+        dropout_rate (`float`, optional):
+            The dropout rate to use. Defaults to `0.1`.
+        model_type (`ModelType`, optional):
+            The type of model to use. Defaults to `ModelType.MLP`.
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int,  # `d_model` in paper
+        query_key_dim: int,  # `d_k` in paper
+        value_dim: int,  # `d_v` in paper
+        num_heads: int,  # `h` in paper
+        ffn_hidden_dim: int,
+        ffn_activation: str = "relu",
+        use_kan_bias: bool = True,
+        use_final_linear_mha_bias: bool = False,
+        use_pffn_bias: bool = True,
+        dropout_rate: float = 0.1,
+        model_type: ModelType = ModelType.MLP,
+    ) -> None:
+        super().__init__()
+
+        self.mha = MultiHeadAttention(
+            embedding_dim=embedding_dim,
+            query_key_dim=query_key_dim,
+            value_dim=value_dim,
+            num_heads=num_heads,
+            use_final_linear_mha_bias=use_final_linear_mha_bias,
+            use_kan_bias=use_kan_bias,
+            model_type=model_type,
+        )
+        self.dropout1 = nn.Dropout(dropout_rate)
+        self.norm1 = nn.LayerNorm(embedding_dim)
+
+        self.pffn = PositionwiseFeedForward(
+            in_out_dim=embedding_dim,
+            hidden_dim=ffn_hidden_dim,
+            activation=ffn_activation,
+            dropout_rate=dropout_rate,
+            use_bias=use_pffn_bias,
+            model_type=model_type,
+        )
+        self.dropout2 = nn.Dropout(dropout_rate)
+        self.norm2 = nn.LayerNorm(embedding_dim)
+
+    def forward(self, x: T, mask: Optional[T] = None) -> T:
+        residual = x
+        x = self.mha(x, x, x, mask)
+        x = self.norm1(residual + self.dropout1(x))
+
+        residual = x
+        x = self.pffn(x)
+        x = self.norm2(residual + self.dropout2(x))
+        return x
+
+
+class TransformerSeq2Seq(nn.Module):
     r"""Transformer - the model proposed in "Attention Is All You Need".
     Paper: https://arxiv.org/abs/1706.03762
     Original Code: https://github.com/tensorflow/tensor2tensor
@@ -274,6 +408,40 @@ class EncoderDecoderTransformer(nn.Module):
     or may not match completely with the model developed in the original codebase.
 
     Args:
+        num_encoder_layers (`int`):
+            The number of encoder blocks to use.
+        num_decoder_layers (`int`):
+            The number of decoder blocks to use.
+        vocab_src_size (`int`):
+            The size of the source vocabulary.
+        vocab_tgt_size (`int`):
+            The size of the target vocabulary.
+        pad_src_idx (`int`):
+            The index of the padding token in the source vocabulary.
+        pad_tgt_idx (`int`):
+            The index of the padding token in the target vocabulary.
+        embedding_dim (`int`):
+            The dimension of the embedding space (d_model in paper).
+        query_key_dim (`int`):
+            The dimension of the query and key vectors (d_k in paper).
+        value_dim (`int`):
+            The dimension of the value vectors (d_v in paper).
+        num_heads (`int`):
+            The number of attention heads (h in paper).
+        ffn_hidden_dim (`int`):
+            The dimension of the hidden layer in the feed-forward network.
+        ffn_activation (`str`, optional):
+            The activation function to use in the feed-forward network. Defaults to `"relu"`.
+        use_kan_bias (`bool`, optional):
+            Whether to use KAN bias. Defaults to `True`.
+        use_final_linear_mha_bias (`bool`, optional):
+            Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
+        use_pffn_bias (`bool`, optional):
+            Whether to use bias in the feed-forward network. Defaults to `True`.
+        dropout_rate (`float`, optional):
+            The dropout rate to use. Defaults to `0.1`.
+        model_type (`ModelType`, optional):
+            The type of model to use. Defaults to `ModelType.MLP`.
     """
 
     def __init__(
@@ -432,12 +600,46 @@ class EncoderDecoderTransformer(nn.Module):
         return tgt_x
 
 
-class EncoderTransformer(nn.Module):
+class TransformerTextGenerator(nn.Module):
+    r"""A simple text generation model using transformer architecture.
+
+    Args:
+        num_layers (`int`):
+            The number of transformer blocks to use.
+        vocab_size (`int`):
+            The size of the vocabulary.
+        pad_idx (`int`):
+            The index of the padding token in the vocabulary.
+        embedding_dim (`int`):
+            The dimension of the embedding space (d_model in paper).
+        query_key_dim (`int`):
+            The dimension of the query and key vectors (d_k in paper).
+        value_dim (`int`):
+            The dimension of the value vectors (d_v in paper).
+        num_heads (`int`):
+            The number of attention heads (h in paper).
+        ffn_hidden_dim (`int`):
+            The dimension of the hidden layer in the feed-forward network.
+        ffn_activation (`str`, optional):
+            The activation function to use in the feed-forward network. Defaults to `"relu"`.
+        use_kan_bias (`bool`, optional):
+            Whether to use KAN bias. Defaults to `True`.
+        use_final_linear_bias (`bool`, optional):
+            Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
+        use_pffn_bias (`bool`, optional):
+            Whether to use bias in the feed-forward network. Defaults to `True`.
+        dropout_rate (`float`, optional):
+            The dropout rate to use. Defaults to `0.1`.
+        max_length (`int`, optional):
+            The maximum length of the sequence. Defaults to `10000`.
+        model_type (`ModelType`, optional):
+            The type of model to use. Defaults to `ModelType.MLP`.
+    """
+
     def __init__(
         self,
-        num_encoder_layers: int,
-        vocab_src_size: int,
-        pad_src_idx: int,
+        num_layers: int,
+        vocab_size: int,
         embedding_dim: int,  # `d_model` in paper
         query_key_dim: int,  # `d_k` in paper
         value_dim: int,  # `d_v` in paper
@@ -453,23 +655,16 @@ class EncoderTransformer(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.pad_src_idx = pad_src_idx
-
+        self.scale = embedding_dim**0.5
         self.pe = PositionalEncoding(
             embedding_dim=embedding_dim,
             max_length=max_length,
         )
-
-        self.src_emb = nn.Embedding(vocab_src_size, embedding_dim)
-        self.src_dropout = nn.Dropout(dropout_rate)
-
-        scale = torch.sqrt(torch.tensor(embedding_dim, dtype=torch.float32))
-        self.register_buffer("scale", scale)
-        self.scale: T
-
-        self.encoder_blocks = nn.ModuleList(
+        self.emb = nn.Embedding(vocab_size, embedding_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        self.blocks = nn.ModuleList(
             [
-                EncoderBlock(
+                MaskedBlock(
                     embedding_dim=embedding_dim,
                     query_key_dim=query_key_dim,
                     value_dim=value_dim,
@@ -482,98 +677,17 @@ class EncoderTransformer(nn.Module):
                     dropout_rate=dropout_rate,
                     model_type=model_type,
                 )
-                for _ in range(num_encoder_layers)
+                for _ in range(num_layers)
             ]
         )
-
-    def _get_src_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
-        pad_mask = (x != pad_idx).bool().unsqueeze(1).unsqueeze(2)
-        return pad_mask
-
-    def forward(self, x: T) -> T:
-        mask = self._get_src_mask(x, self.pad_src_idx)
-        x = self.src_emb(x)
-        x = x * self.scale
-        x = self.pe(x)
-        x = self.src_dropout(x)
-        for block in self.encoder_blocks:
-            x = block(x, mask)
-        return x
-
-
-class DecoderTransformer(nn.Module):
-    def __init__(
-        self,
-        num_decoder_layers: int,
-        vocab_tgt_size: int,
-        pad_tgt_idx: int,
-        embedding_dim: int,  # `d_model` in paper
-        query_key_dim: int,  # `d_k` in paper
-        value_dim: int,  # `d_v` in paper
-        num_heads: int,  # `h` in paper
-        ffn_hidden_dim: int,
-        ffn_activation: str = "relu",
-        use_kan_bias: bool = True,
-        use_pffn_bias: bool = True,
-        use_final_linear_bias: bool = False,
-        dropout_rate: float = 0.1,
-        max_length: int = 10000,
-        model_type: ModelType = ModelType.MLP,
-    ) -> None:
-        super().__init__()
-
-        self.pad_tgt_idx = pad_tgt_idx
-
-        self.pe = PositionalEncoding(
-            embedding_dim=embedding_dim,
-            max_length=max_length,
-        )
-
-        self.tgt_emb = nn.Embedding(vocab_tgt_size, embedding_dim)
-        self.tgt_dropout = nn.Dropout(dropout_rate)
-
-        scale = torch.sqrt(torch.tensor(embedding_dim, dtype=torch.float32))
-        self.register_buffer("scale", scale)
-        self.scale: T
-
-        self.decoder_blocks = nn.ModuleList(
-            [
-                DecoderBlock(
-                    embedding_dim=embedding_dim,
-                    query_key_dim=query_key_dim,
-                    value_dim=value_dim,
-                    num_heads=num_heads,
-                    ffn_hidden_dim=ffn_hidden_dim,
-                    ffn_activation=ffn_activation,
-                    use_kan_bias=use_kan_bias,
-                    use_final_linear_mha_bias=use_final_linear_bias,
-                    use_pffn_bias=use_pffn_bias,
-                    dropout_rate=dropout_rate,
-                    model_type=model_type,
-                    use_encoder_attn=False,
-                )
-                for _ in range(num_decoder_layers)
-            ]
-        )
-
         cls = get_model_cls(model_type, use_kan_bias)
-        self.linear = cls(embedding_dim, vocab_tgt_size, bias=use_final_linear_bias)
+        self.linear = cls(embedding_dim, vocab_size, bias=use_final_linear_bias)
 
-    def _get_tgt_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
-        seq_length = x.size(1)
-        pad_mask = (x != pad_idx).unsqueeze(1).unsqueeze(2)
-        causal_mask = torch.ones((1, seq_length, seq_length), device=x.device)
-        causal_mask = torch.tril(causal_mask).bool()
-        mask = pad_mask & causal_mask
-        return mask
-
-    def forward(self, x: T) -> T:
-        mask = self._get_tgt_mask(x, self.pad_tgt_idx)
-        x = self.tgt_emb(x)
-        x = x * self.scale
+    def forward(self, x: T, mask: Optional[T] = None) -> T:
+        x = self.emb(x) * self.scale
         x = self.pe(x)
-        x = self.tgt_dropout(x)
-        for block in self.decoder_blocks:
-            x = block(x, None, mask)
+        x = self.dropout(x)
+        for block in self.blocks:
+            x = block(x, mask)
         x = self.linear(x)
         return x

@@ -7,6 +7,6 @@ from .models.transformer import (
     EncoderBlock,
     DecoderTransformer,
     EncoderTransformer,
-    EncoderDecoderTransformer,
+    TransformerSeq2Seq,
 )
 from .config import ModelType

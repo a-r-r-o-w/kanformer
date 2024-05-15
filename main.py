@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from kanformer import (
     PositionalEncoding,
-    EncoderDecoderTransformer,
+    TransformerSeq2Seq,
     LRScheduler,
     ModelType,
 )
@@ -222,7 +222,7 @@ class CLI:
             collate_fn=collate_helper,
         )
 
-        transformer = EncoderDecoderTransformer(
+        transformer = TransformerSeq2Seq(
             num_encoder_layers=num_encoder_layers,
             num_decoder_layers=num_decoder_layers,
             vocab_src_size=vocab_src_size,
@@ -449,7 +449,7 @@ class CLI:
             config = json.load(f)
 
         # read model
-        transformer = EncoderDecoderTransformer(
+        transformer = TransformerSeq2Seq(
             num_encoder_layers=config["num_encoder_layers"],
             num_decoder_layers=config["num_decoder_layers"],
             vocab_src_size=config["vocab_src_size"],

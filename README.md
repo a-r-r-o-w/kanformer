@@ -97,8 +97,7 @@ python3 main.py train \
   --num_heads=8 \
   --ffn_hidden_dim=768 \
   --ffn_activation="relu" \
-  --use_ffn_bias_1 \
-  --use_ffn_bias_2 \
+  --use_pffn_bias \
   --dropout_rate=0.1 \
   --max_length=32 \
   --weight_initialization_method="kaiming_uniform" \
@@ -131,8 +130,7 @@ python3 main.py train \
   --ffn_hidden_dim=512 \
   --ffn_activation="relu" \
   --use_kan_bias \
-  --use_ffn_bias_1 \
-  --use_ffn_bias_2 \
+  --use_pffn_bias \
   --dropout_rate=0.1 \
   --max_length=32 \
   --weight_initialization_method="kaiming_uniform" \
@@ -181,11 +179,12 @@ Generated token indices: [0, 73, 93, 71, 731, 87, 90, 735, 995, 147, 207, 73, 11
 - [x] wandb logging
 - [ ] Implement RoPE
 - [ ] Implement MoE
+- [x] Implement GLU activation variants
 - [x] Checkpointing
 - [x] Gradient accumulation
 - [ ] MultiGPU support using HF ecosystem
 - [ ] GPT and BERT variants among other common configs
-- [ ] Improve docs
+- [x] Improve docs
 - [ ] Tests
 
 ```

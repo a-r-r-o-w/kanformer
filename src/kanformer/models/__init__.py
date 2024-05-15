@@ -3,7 +3,7 @@ from .transformer import (
     PositionalEncoding,
     EncoderBlock,
     DecoderBlock,
-    EncoderDecoderTransformer,
+    TransformerSeq2Seq,
 )
 from .attention import ScaledDotProductAttention, MultiHeadAttention
 from .lr_scheduler import LRScheduler
