@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -59,6 +59,7 @@ class PositionwiseFeedForward(nn.Module):
         dropout_rate: float = 0.1,
         use_bias: bool = True,
         model_type: ModelType = ModelType.MLP,
+        **kwargs: Dict[str, Any],
     ) -> None:
         super().__init__()
 
@@ -67,7 +68,7 @@ class PositionwiseFeedForward(nn.Module):
         self.activation = activation
         self.use_bias = use_bias
 
-        cls = get_model_cls(model_type, use_bias)
+        cls = get_model_cls(model_type, use_bias, **kwargs)
         self.in_proj = cls(in_out_dim, hidden_dim, bias=use_bias)
         self.out_proj = cls(hidden_dim, in_out_dim, bias=use_bias)
         self.gates = (
@@ -464,11 +465,28 @@ class TransformerSeq2Seq(nn.Module):
         dropout_rate: float = 0.1,
         max_length: int = 10000,
         model_type: ModelType = ModelType.MLP,
+        **kwargs: Dict[str, Any],
     ) -> None:
         super().__init__()
 
+        self.num_encoder_layers = num_encoder_layers
+        self.num_decoder_layers = num_decoder_layers
+        self.vocab_src_size = vocab_src_size
+        self.vocab_tgt_size = vocab_tgt_size
         self.pad_src_idx = pad_src_idx
         self.pad_tgt_idx = pad_tgt_idx
+        self.embedding_dim = embedding_dim
+        self.query_key_dim = query_key_dim
+        self.value_dim = value_dim
+        self.num_heads = num_heads
+        self.ffn_hidden_dim = ffn_hidden_dim
+        self.ffn_activation = ffn_activation
+        self.use_kan_bias = use_kan_bias
+        self.use_pffn_bias = use_pffn_bias
+        self.use_final_linear_bias = use_final_linear_bias
+        self.dropout_rate = dropout_rate
+        self.max_length = max_length
+        self.model_type = model_type
 
         self.pe = PositionalEncoding(
             embedding_dim=embedding_dim,
@@ -523,7 +541,7 @@ class TransformerSeq2Seq(nn.Module):
             ]
         )
 
-        cls = get_model_cls(model_type, use_kan_bias)
+        cls = get_model_cls(model_type, use_kan_bias, **kwargs)
         self.linear = cls(embedding_dim, vocab_tgt_size, bias=use_final_linear_bias)
 
     def _get_src_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
@@ -652,6 +670,7 @@ class TransformerTextGenerator(nn.Module):
         dropout_rate: float = 0.1,
         max_length: int = 10000,
         model_type: ModelType = ModelType.MLP,
+        **kwargs: Dict[str, Any],
     ) -> None:
         super().__init__()
 
@@ -680,7 +699,7 @@ class TransformerTextGenerator(nn.Module):
                 for _ in range(num_layers)
             ]
         )
-        cls = get_model_cls(model_type, use_kan_bias)
+        cls = get_model_cls(model_type, use_kan_bias, **kwargs)
         self.linear = cls(embedding_dim, vocab_size, bias=use_final_linear_bias)
 
     def forward(self, x: T, mask: Optional[T] = None) -> T:

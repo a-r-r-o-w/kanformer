@@ -75,8 +75,10 @@ class CLI:
         experiment_name: str = "transformer",
         checkpoint_steps: int = 500,
         gradient_accumulation_steps: int = 1,
+        device: str = "cuda:0",
         model_type: str = "mlp",
         track_wandb: bool = False,
+        chebykan_degree: int = 4,
     ) -> None:
         r"""Train the transformer model. You can configure various hyperparameters.
 
@@ -103,8 +105,11 @@ class CLI:
             ModelType.MLP,
             ModelType.KAN_ORIGINAL,
             ModelType.KAN_EFFICIENT,
+            ModelType.KAN_CHEBYSHEV,
         ]:
             raise ValueError(f"Model type {model_type} not supported")
+        if model_type == ModelType.KAN_CHEBYSHEV:
+            kwargs = {"chebykan_degree": chebykan_degree}
 
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -241,7 +246,8 @@ class CLI:
             dropout_rate=dropout_rate,
             max_length=max_length,
             model_type=model_type,
-        ).to(device="cuda")
+            **kwargs,
+        ).to(device=device)
 
         initialize_weights(transformer, weight_initialization_method)
 
@@ -278,8 +284,8 @@ class CLI:
 
                 transformer.train()
                 for i, (en_tensors, de_tensors) in enumerate(train_dataloader):
-                    en_tensors = en_tensors.to(device="cuda")
-                    de_tensors = de_tensors.to(device="cuda")
+                    en_tensors = en_tensors.to(device=device)
+                    de_tensors = de_tensors.to(device=device)
                     src_de = de_tensors[:, :-1]
                     tgt_de = de_tensors[:, 1:].contiguous().view(-1)
 
@@ -341,8 +347,8 @@ class CLI:
                             for i, (en_tensors, de_tensors) in enumerate(
                                 val_dataloader
                             ):
-                                en_tensors = en_tensors.to(device="cuda")
-                                de_tensors = de_tensors.to(device="cuda")
+                                en_tensors = en_tensors.to(device=device)
+                                de_tensors = de_tensors.to(device=device)
                                 src_de = de_tensors[:, :-1]
                                 tgt_de = de_tensors[:, 1:].contiguous().view(-1)
 
@@ -366,6 +372,8 @@ class CLI:
                     print()
 
                     print("Running inference on validation set")
+                    print(de_tensors.shape)
+                    print(output.shape)
                     tgt_tokens = tokenizer_de.decode_batch(
                         de_tensors[:5, 1:].cpu().numpy(), skip_special_tokens=False
                     )
@@ -384,8 +392,8 @@ class CLI:
                 with torch.no_grad():
                     with tqdm(total=len(test_dataloader), desc="Testing") as testbar:
                         for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
-                            en_tensors = en_tensors.to(device="cuda")
-                            de_tensors = de_tensors.to(device="cuda")
+                            en_tensors = en_tensors.to(device=device)
+                            de_tensors = de_tensors.to(device=device)
                             src_de = de_tensors[:, :-1]
                             tgt_de = de_tensors[:, 1:].contiguous().view(-1)
 
@@ -440,6 +448,7 @@ class CLI:
         temperature: float = 1.0,
         sample: bool = False,
         max_length: int = 100,
+        device: str = "cuda:0",
     ) -> None:
         if isinstance(input, str):
             input = [input]
@@ -448,7 +457,9 @@ class CLI:
         with open(os.path.join(experiment_dir, "config.json"), "r") as f:
             config = json.load(f)
 
-        # read model
+        if config["model_type"] == ModelType.KAN_CHEBYSHEV:
+            kwargs = {"chebykan_degree": config["chebykan_degree"]}
+
         transformer = TransformerSeq2Seq(
             num_encoder_layers=config["num_encoder_layers"],
             num_decoder_layers=config["num_decoder_layers"],
@@ -467,7 +478,9 @@ class CLI:
             use_final_linear_bias=config["use_final_linear_bias"],
             dropout_rate=config["dropout_rate"],
             max_length=max_length,
-        ).to(device="cuda")
+            model_type=config["model_type"],
+            **kwargs,
+        ).to(device=device)
 
         transformer.load_state_dict(
             torch.load(os.path.join(experiment_dir, f"{experiment_name}_final.pth")),
@@ -493,7 +506,7 @@ class CLI:
                     + [eos_token_idx]
                 )
                 en_tensors = torch.tensor([en_tokens], dtype=torch.long).to(
-                    device="cuda"
+                    device=device
                 )
 
                 de_tokens = [sos_token_idx]
@@ -501,7 +514,7 @@ class CLI:
 
                 for _ in range(max_length - 1):
                     de_tensors = torch.tensor([de_tokens], dtype=torch.long).to(
-                        device="cuda"
+                        device=device
                     )
                     logits = transformer.decode(en_tensors, de_tensors, memory)
                     logits /= temperature

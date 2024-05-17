@@ -137,4 +137,5 @@ class MultiHeadAttention(nn.Module):
 
         # 4. Linear
         x = self.ff_proj(x)
+
         return x
