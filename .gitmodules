@@ -7,3 +7,6 @@
 [submodule "chebykan"]
 	path = src/chebykan
 	url = https://github.com/SynodicMonth/ChebyKAN
+[submodule "src/fastkan"]
+	path = src/fastkan
+	url = https://github.com/ZiyaoLi/fast-kan

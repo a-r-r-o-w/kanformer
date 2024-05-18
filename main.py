@@ -106,8 +106,11 @@ class CLI:
             ModelType.KAN_ORIGINAL,
             ModelType.KAN_EFFICIENT,
             ModelType.KAN_CHEBYSHEV,
+            ModelType.KAN_FAST,
         ]:
             raise ValueError(f"Model type {model_type} not supported")
+
+        kwargs = {}
         if model_type == ModelType.KAN_CHEBYSHEV:
             kwargs = {"chebykan_degree": chebykan_degree}
 
