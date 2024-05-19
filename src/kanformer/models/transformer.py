@@ -581,7 +581,7 @@ class TransformerSeq2Seq(TransformerBase):
 
     def encode(self, src_x: T) -> T:
         # 1. Prepare masks for encoder
-        src_mask = self._get_src_mask(src_x, self.config.pad_src_idx)
+        src_mask = self._get_src_mask(src_x, self.config["pad_src_idx"])
 
         # 2. Convert tokens to embeddings
         src_x = self.src_emb(src_x)
@@ -601,8 +601,8 @@ class TransformerSeq2Seq(TransformerBase):
 
     def decode(self, src_x: T, tgt_x: T, memory: T) -> T:
         # 1. Prepare masks for decoder
-        src_mask = self._get_src_mask(src_x, self.config.pad_src_idx)
-        tgt_mask = self._get_tgt_mask(tgt_x, self.config.pad_tgt_idx)
+        src_mask = self._get_src_mask(src_x, self.config["pad_src_idx"])
+        tgt_mask = self._get_tgt_mask(tgt_x, self.config["pad_tgt_idx"])
 
         # 2. Convert tokens to embeddings
         tgt_x = self.tgt_emb(tgt_x)
