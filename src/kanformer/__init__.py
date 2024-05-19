@@ -6,5 +6,6 @@ from .models.transformer import (
     DecoderBlock,
     EncoderBlock,
     TransformerSeq2Seq,
+    TransformerTextGeneration,
 )
 from .config import ModelType

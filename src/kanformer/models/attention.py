@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 
 from ..config import ModelType
-from ..model_utils import get_model_cls
+from ..config_utils import register_to_config
+from ..model_utils import get_linear_cls
 
 
 T = torch.FloatTensor
@@ -81,6 +82,7 @@ class MultiHeadAttention(nn.Module):
             The type of model to use. Defaults to `ModelType.MLP`.
     """
 
+    @register_to_config
     def __init__(
         self,
         embedding_dim: int,  # `d_model` in paper
@@ -100,7 +102,7 @@ class MultiHeadAttention(nn.Module):
         self.query_key_dim_per_head = query_key_dim // num_heads
         self.value_dim_per_head = value_dim // num_heads
 
-        cls = get_model_cls(model_type, use_kan_bias)
+        cls = get_linear_cls(model_type, use_kan_bias)
         self.q_proj = cls(self.embedding_dim, self.query_key_dim, bias=False)
         self.k_proj = cls(self.embedding_dim, self.query_key_dim, bias=False)
         self.v_proj = cls(self.embedding_dim, self.value_dim, bias=False)

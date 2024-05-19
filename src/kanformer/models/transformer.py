@@ -1,10 +1,12 @@
+import functools
 from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
 
-from ..config import ModelType
-from ..model_utils import get_model_cls
+from ..config import ModelType, ModelConfig
+from ..config_utils import register_to_config
+from ..model_utils import get_linear_cls
 from .attention import MultiHeadAttention
 
 
@@ -51,6 +53,7 @@ class PositionwiseFeedForward(nn.Module):
             The type of model to use. Defaults to `ModelType.MLP`.
     """
 
+    @register_to_config
     def __init__(
         self,
         in_out_dim: int,
@@ -68,7 +71,7 @@ class PositionwiseFeedForward(nn.Module):
         self.activation = activation
         self.use_bias = use_bias
 
-        cls = get_model_cls(model_type, use_bias, **kwargs)
+        cls = get_linear_cls(model_type, use_bias, **kwargs)
         self.in_proj = cls(in_out_dim, hidden_dim, bias=use_bias)
         self.out_proj = cls(hidden_dim, in_out_dim, bias=use_bias)
         self.gates = (
@@ -76,7 +79,6 @@ class PositionwiseFeedForward(nn.Module):
             if _is_glu_activation(activation)
             else None
         )
-
         self.dropout = nn.Dropout(dropout_rate)
         self.act = get_activation(activation)
 
@@ -105,6 +107,7 @@ class PositionalEncoding(nn.Module):
             The maximum length of the sequence. Defaults to `10000`.
     """
 
+    @register_to_config
     def __init__(
         self,
         embedding_dim: int,  # `d_model` in paper
@@ -115,11 +118,15 @@ class PositionalEncoding(nn.Module):
         self.embedding_dim = embedding_dim
         self.max_length = max_length
 
-        two_i = torch.arange(0, embedding_dim, 2, dtype=torch.float32)
-        numerator = torch.arange(0, max_length, dtype=torch.float32).unsqueeze(1)
+        two_i = torch.arange(
+            0, embedding_dim, 2, dtype=torch.float32, requires_grad=False
+        )
+        numerator = torch.arange(
+            0, max_length, dtype=torch.float32, requires_grad=False
+        ).unsqueeze(1)
         denominator = 10000.0 ** (two_i / embedding_dim)
 
-        self.pe = torch.zeros(max_length, embedding_dim)
+        self.pe = torch.zeros(max_length, embedding_dim, requires_grad=False)
         self.pe[:, 0::2] = torch.sin(numerator / denominator)
         self.pe[:, 1::2] = torch.cos(numerator / denominator)
 
@@ -157,6 +164,7 @@ class EncoderBlock(nn.Module):
             The type of model to use. Defaults to `ModelType.MLP`.
     """
 
+    @register_to_config
     def __init__(
         self,
         embedding_dim: int,  # `d_model` in paper
@@ -238,6 +246,7 @@ class DecoderBlock(nn.Module):
             Whether to use encoder hidden states and perform attention with them. Defaults to `True`.
     """
 
+    @register_to_config
     def __init__(
         self,
         embedding_dim: int,  # `d_model` in paper
@@ -349,6 +358,7 @@ class MaskedBlock(nn.Module):
             The type of model to use. Defaults to `ModelType.MLP`.
     """
 
+    @register_to_config
     def __init__(
         self,
         embedding_dim: int,  # `d_model` in paper
@@ -399,7 +409,18 @@ class MaskedBlock(nn.Module):
         return x
 
 
-class TransformerSeq2Seq(nn.Module):
+class TransformerBase(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    @staticmethod
+    def from_config(config: Dict[str, Any]) -> "TransformerBase":
+        cls_name = config.pop("_cls")
+        cls = _cls_name_to_cls_mapping[cls_name]
+        return cls(**config)
+
+
+class TransformerSeq2Seq(TransformerBase):
     r"""Transformer - the model proposed in "Attention Is All You Need".
     Paper: https://arxiv.org/abs/1706.03762
     Original Code: https://github.com/tensorflow/tensor2tensor
@@ -445,6 +466,7 @@ class TransformerSeq2Seq(nn.Module):
             The type of model to use. Defaults to `ModelType.MLP`.
     """
 
+    @register_to_config
     def __init__(
         self,
         num_encoder_layers: int,
@@ -468,25 +490,6 @@ class TransformerSeq2Seq(nn.Module):
         **kwargs: Dict[str, Any],
     ) -> None:
         super().__init__()
-
-        self.num_encoder_layers = num_encoder_layers
-        self.num_decoder_layers = num_decoder_layers
-        self.vocab_src_size = vocab_src_size
-        self.vocab_tgt_size = vocab_tgt_size
-        self.pad_src_idx = pad_src_idx
-        self.pad_tgt_idx = pad_tgt_idx
-        self.embedding_dim = embedding_dim
-        self.query_key_dim = query_key_dim
-        self.value_dim = value_dim
-        self.num_heads = num_heads
-        self.ffn_hidden_dim = ffn_hidden_dim
-        self.ffn_activation = ffn_activation
-        self.use_kan_bias = use_kan_bias
-        self.use_pffn_bias = use_pffn_bias
-        self.use_final_linear_bias = use_final_linear_bias
-        self.dropout_rate = dropout_rate
-        self.max_length = max_length
-        self.model_type = model_type
 
         self.pe = PositionalEncoding(
             embedding_dim=embedding_dim,
@@ -541,8 +544,11 @@ class TransformerSeq2Seq(nn.Module):
             ]
         )
 
-        cls = get_model_cls(model_type, use_kan_bias, **kwargs)
+        cls = get_linear_cls(model_type, use_kan_bias, **kwargs)
         self.linear = cls(embedding_dim, vocab_tgt_size, bias=use_final_linear_bias)
+
+        if isinstance(self.linear, nn.Linear):
+            self.linear.weight = self.tgt_emb.weight
 
     def _get_src_mask(self, x: T, pad_idx: int) -> torch.BoolTensor:
         r"""Helper utility to get mask for padded tokens. Padded tokens should not be paid attention."""
@@ -575,7 +581,7 @@ class TransformerSeq2Seq(nn.Module):
 
     def encode(self, src_x: T) -> T:
         # 1. Prepare masks for encoder
-        src_mask = self._get_src_mask(src_x, self.pad_src_idx)
+        src_mask = self._get_src_mask(src_x, self.config["pad_src_idx"])
 
         # 2. Convert tokens to embeddings
         src_x = self.src_emb(src_x)
@@ -595,8 +601,8 @@ class TransformerSeq2Seq(nn.Module):
 
     def decode(self, src_x: T, tgt_x: T, memory: T) -> T:
         # 1. Prepare masks for decoder
-        src_mask = self._get_src_mask(src_x, self.pad_src_idx)
-        tgt_mask = self._get_tgt_mask(tgt_x, self.pad_tgt_idx)
+        src_mask = self._get_src_mask(src_x, self.config["pad_src_idx"])
+        tgt_mask = self._get_tgt_mask(tgt_x, self.config["pad_tgt_idx"])
 
         # 2. Convert tokens to embeddings
         tgt_x = self.tgt_emb(tgt_x)
@@ -618,7 +624,7 @@ class TransformerSeq2Seq(nn.Module):
         return tgt_x
 
 
-class TransformerTextGenerator(nn.Module):
+class TransformerTextGeneration(TransformerBase):
     r"""A simple text generation model using transformer architecture.
 
     Args:
@@ -626,8 +632,6 @@ class TransformerTextGenerator(nn.Module):
             The number of transformer blocks to use.
         vocab_size (`int`):
             The size of the vocabulary.
-        pad_idx (`int`):
-            The index of the padding token in the vocabulary.
         embedding_dim (`int`):
             The dimension of the embedding space (d_model in paper).
         query_key_dim (`int`):
@@ -654,6 +658,9 @@ class TransformerTextGenerator(nn.Module):
             The type of model to use. Defaults to `ModelType.MLP`.
     """
 
+    _tie_weights = [["emb", "linear"]]
+
+    @register_to_config
     def __init__(
         self,
         num_layers: int,
@@ -699,8 +706,11 @@ class TransformerTextGenerator(nn.Module):
                 for _ in range(num_layers)
             ]
         )
-        cls = get_model_cls(model_type, use_kan_bias, **kwargs)
+        cls = get_linear_cls(model_type, use_kan_bias, **kwargs)
         self.linear = cls(embedding_dim, vocab_size, bias=use_final_linear_bias)
+
+        if isinstance(self.linear, nn.Linear):
+            self.linear.weight = self.emb.weight
 
     def forward(self, x: T, mask: Optional[T] = None) -> T:
         x = self.emb(x) * self.scale
@@ -710,3 +720,9 @@ class TransformerTextGenerator(nn.Module):
             x = block(x, mask)
         x = self.linear(x)
         return x
+
+
+_cls_name_to_cls_mapping = {
+    TransformerSeq2Seq.__name__: TransformerSeq2Seq,
+    TransformerTextGeneration.__name__: TransformerTextGeneration,
+}
