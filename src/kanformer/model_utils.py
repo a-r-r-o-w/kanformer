@@ -105,7 +105,7 @@ class KANFast(nn.Module):
         return self.fastkan(x, time_benchmark=time_benchmark)
 
 
-def get_model_cls(
+def get_linear_cls(
     model_type: ModelType,
     use_kan_bias: bool,
     *,

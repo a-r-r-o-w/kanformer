@@ -23,6 +23,36 @@ python3 setup.py develop
 
 ### Usage
 
+#### Using a GPT Config
+
+```py
+from kanformer import TransformerTextGeneration
+from kanformer.config import ModelConfig, ModelType
+
+# `ModelConfig` can be one of the predefined configurations:
+#   - GPT2, GPT2_MEDIUM, GPT2_LARGE, GPT2_XL, GPT2_MICRO, GPT2_MINI, GPT2_NANO
+# or, you can create your own configuration by editing the dictionary
+#
+# `ModelType` can be one of "MLP", "KAN_ORIGINAL", "KAN_EFFICIENT", "KAN_CHEBYSHEV", "KAN_FAST"
+# Note: Using any KAN variant adds many more trainable parameters so be careful when comparing
+#       with MLP.  Make sure to use the same number of parameters for a fair comparison. To get
+#       similar number of parameters, you can reduce the embedding_dim, query_key_dim, value_dim,
+#       ffn_hidden_dim, and other parameters for KAN variants.
+config = ModelConfig.GPT2()
+config["max_length"] = 1024
+config["model_type"] = ModelType.MLP
+
+model = TransformerTextGeneration.from_config(config)
+
+print(model.config)
+print(sum(p.numel() for p in model.parameters() if p.requires_grad)) # Parameters: 123,674,449
+
+# If we initialized with ModelType.KAN_CHEBYSHEV, the number of parameters would be 656,294,400
+# even if the configuration is the same. This is because KAN adds many more trainable parameters.
+```
+
+#### Initializing transformer directly
+
 ```py
 import torch
 from kanformer import TransformerSeq2Seq
@@ -45,7 +75,7 @@ model = TransformerSeq2Seq(
     max_length=2048,
     model_type="mlp"
 ).to("cuda")
-print(sum(p.numel() for p in model.parameters() if p.requires_grad)) # 21858816
+print(sum(p.numel() for p in model.parameters() if p.requires_grad)) # 21662720
 
 # KAN efficient (https://github.com/Blealtan/efficient-kan/)
 model = TransformerSeq2Seq(
@@ -64,9 +94,9 @@ model = TransformerSeq2Seq(
     dropout_rate=0.1,
     max_length=2048,
     use_kan_bias=True,
-    model_type="efficient_kan"
+    model_type="kan_chebyshev"
 ).to("cuda")
-print(sum(p.numel() for p in model.parameters() if p.requires_grad)) # 21446400
+print(sum(p.numel() for p in model.parameters() if p.requires_grad)) # 13331200
 
 batch_size = 32
 seq_length = 512
@@ -191,7 +221,8 @@ Generated token indices: [0, 73, 93, 71, 731, 87, 90, 735, 995, 147, 207, 73, 11
 - [x] Checkpointing
 - [x] Gradient accumulation
 - [ ] MultiGPU support using HF ecosystem
-- [ ] GPT and BERT variants among other common configs
+- [x] Common GPT configs
+- [ ] Common BERT configs
 - [x] Improve docs
 - [ ] Tests
 
