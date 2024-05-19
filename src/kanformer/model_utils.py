@@ -3,14 +3,67 @@ from typing import Any, Dict
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pykan.kan.KAN import KAN as KANOriginal
-from efficient_kan.src.efficient_kan.kan import KAN as KANEfficient
+from pykan.kan import KAN as OriginalKANLinear
+from efficient_kan.src.efficient_kan import KANLinear as EfficientKANLinear
 from chebykan.ChebyKANLayer import ChebyKANLayer
 from fastkan.fastkan import FastKANLayer
 
 from .config import ModelType
 
 T = torch.Tensor
+
+
+class KANOriginal(nn.Module):
+    def __init__(self, in_features: int, out_features: int) -> None:
+        super().__init__()
+        self.kan = OriginalKANLinear(
+            width=[in_features, out_features],
+            grid=3,
+            k=3,
+            noise_scale=0.1,
+            noise_scale_base=0.1,
+            base_fun=torch.nn.SiLU,
+            symbolic_enabled=True,
+            bias_trainable=True,
+            grid_eps=1.0,
+            grid_range=[-1, 1],
+            sp_trainable=True,
+            sb_trainable=True,
+        )
+
+    def forward(self, x: T) -> T:
+        if x.device != self.kan.device:
+            self.kan = self.kan.to(x.device)
+            self.kan.device = x.device
+            for layer in self.kan.act_fun:
+                layer.to(x.device)
+                layer.device = x.device
+        batch_size, seq_length, _ = x.shape
+        x = self.kan(x.view(-1, x.shape[-1]))
+        return x.view(batch_size, seq_length, -1)
+
+
+class KANEfficient(nn.Module):
+    def __init__(self, in_features: int, out_features: int) -> None:
+        super().__init__()
+        self.kan = EfficientKANLinear(
+            in_features=in_features,
+            out_features=out_features,
+            grid_size=5,
+            spline_order=3,
+            scale_noise=0.1,
+            scale_base=1.0,
+            scale_spline=1.0,
+            enable_standalone_scale_spline=True,
+            base_activation=torch.nn.SiLU,
+            grid_eps=0.02,
+            grid_range=[-1, 1],
+        )
+
+    def forward(self, x: T) -> T:
+        batch_size, seq_length, _ = x.shape
+        x = self.kan(x)
+        return x.view(batch_size, seq_length, -1)
 
 
 class KANChebyshev(nn.Module):
@@ -65,11 +118,11 @@ def get_model_cls(
         )
     elif model_type == ModelType.KAN_ORIGINAL:
         return lambda in_features, out_features, bias: KANOriginal(
-            width=[in_features, out_features], bias_trainable=use_kan_bias
+            in_features, out_features
         )
     elif model_type == ModelType.KAN_EFFICIENT:
         return lambda in_features, out_features, bias: KANEfficient(
-            layers_hidden=[in_features, out_features]
+            in_features, out_features
         )
     elif model_type == ModelType.KAN_CHEBYSHEV:
         return lambda in_features, out_features, bias: KANChebyshev(

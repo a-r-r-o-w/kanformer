@@ -25,10 +25,10 @@ python3 setup.py develop
 
 ```py
 import torch
-from kanformer import EncoderDecoderTransformer
+from kanformer import TransformerSeq2Seq
 
 # mlp
-model = EncoderDecoderTransformer(
+model = TransformerSeq2Seq(
     num_encoder_layers=3,
     num_decoder_layers=3,
     vocab_src_size=5000,
@@ -40,7 +40,7 @@ model = EncoderDecoderTransformer(
     value_dim=512,
     num_heads=8,
     ffn_hidden_dim=768,
-    ffn_activation="relu",
+    ffn_activation="swiglu",
     dropout_rate=0.1,
     max_length=2048,
     model_type="mlp"
@@ -48,7 +48,7 @@ model = EncoderDecoderTransformer(
 print(sum(p.numel() for p in model.parameters() if p.requires_grad)) # 21858816
 
 # KAN efficient (https://github.com/Blealtan/efficient-kan/)
-model = EncoderDecoderTransformer(
+model = TransformerSeq2Seq(
     num_encoder_layers=3,
     num_decoder_layers=3,
     vocab_src_size=5000,
@@ -60,7 +60,7 @@ model = EncoderDecoderTransformer(
     value_dim=128,
     num_heads=8,
     ffn_hidden_dim=512,
-    ffn_activation="relu",
+    ffn_activation="swiglu",
     dropout_rate=0.1,
     max_length=2048,
     use_kan_bias=True,
@@ -80,7 +80,9 @@ print(output.shape)  # (batch_size, seq_length, vocab_tgt_size)
 <details>
 <summary> Training </summary>
 
-Currently, there are various limitations with the codebase that will be improved soon. For experimentation, Multi30k has been hardcoded. TODO: remove
+Currently, there are various limitations with the codebase that will be improved soon. For experimentation, Multi30k has been hardcoded.
+
+**model_type:** Can be one of "mlp", "kan_original", "kan_efficient", "kan_chebyshev" or "kan_fast".
 
 ```bash
 # MLP
@@ -95,9 +97,10 @@ python3 main.py train \
   --query_key_dim=512 \
   --value_dim=512 \
   --num_heads=8 \
-  --ffn_hidden_dim=768 \
-  --ffn_activation="relu" \
+  --ffn_hidden_dim=1024 \
+  --ffn_activation="swiglu" \
   --use_pffn_bias \
+  --use_final_linear_bias \
   --dropout_rate=0.1 \
   --max_length=32 \
   --weight_initialization_method="kaiming_uniform" \
@@ -109,9 +112,10 @@ python3 main.py train \
   --seed=42 \
   --validation_epochs=1 \
   --checkpoint_path="checkpoints" \
-  --experiment_name="en_de_translation_mlp_relu" \
+  --experiment_name="en_de_translation_mlp" \
   --checkpoint_steps=5000 \
   --gradient_accumulation_steps=1 \
+  --device="cuda:0" \
   --model_type="mlp" \
   --track_wandb
 
@@ -126,11 +130,12 @@ python3 main.py train \
   --embedding_dim=128 \
   --query_key_dim=128 \
   --value_dim=128 \
-  --num_heads=8 \
-  --ffn_hidden_dim=512 \
-  --ffn_activation="relu" \
+  --num_heads=4 \
+  --ffn_hidden_dim=256 \
+  --ffn_activation="swiglu" \
   --use_kan_bias \
   --use_pffn_bias \
+  --use_final_linear_bias \
   --dropout_rate=0.1 \
   --max_length=32 \
   --weight_initialization_method="kaiming_uniform" \
@@ -142,9 +147,10 @@ python3 main.py train \
   --seed=42 \
   --validation_epochs=1 \
   --checkpoint_path="checkpoints" \
-  --experiment_name="en_de_translation_kan_relu" \
+  --experiment_name="en_de_translation_kan_efficient" \
   --checkpoint_steps=5000 \
   --gradient_accumulation_steps=1 \
+  --device="cuda:0" \
   --model_type="kan_efficient" \
   --track_wandb
 ```
@@ -173,8 +179,10 @@ Generated token indices: [0, 73, 93, 71, 731, 87, 90, 735, 995, 147, 207, 73, 11
 ### TODO
 
 - [x] Implement transformer base
-- [ ] Implement original KAN (https://github.com/KindXiaoming/pykan/)
+- [x] Use original KAN (https://github.com/KindXiaoming/pykan/)
 - [x] Use Efficient KAN (https://github.com/Blealtan/efficient-kan/)
+- [x] Use Chebyshev KAN (https://github.com/SynodicMonth/ChebyKAN)
+- [x] Use Fast KAN (https://github.com/ZiyaoLi/fast-kan)
 - [ ] Dataset agnostic training
 - [x] wandb logging
 - [ ] Implement RoPE

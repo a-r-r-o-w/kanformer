@@ -10,12 +10,12 @@ python3 main.py train \
   --embedding_dim=128 \
   --query_key_dim=128 \
   --value_dim=128 \
-  --num_heads=8 \
-  --ffn_hidden_dim=512 \
-  --ffn_activation="relu" \
+  --num_heads=4 \
+  --ffn_hidden_dim=256 \
+  --ffn_activation="swiglu" \
   --use_kan_bias \
-  --use_ffn_bias_1 \
-  --use_ffn_bias_2 \
+  --use_pffn_bias \
+  --use_final_linear_bias \
   --dropout_rate=0.1 \
   --max_length=32 \
   --weight_initialization_method="kaiming_uniform" \
@@ -27,7 +27,7 @@ python3 main.py train \
   --seed=42 \
   --validation_epochs=1 \
   --checkpoint_path="checkpoints" \
-  --experiment_name="en_de_translation_mlp_relu" \
+  --experiment_name="en_de_translation_kan_chebyshev" \
   --checkpoint_steps=5000 \
   --gradient_accumulation_steps=1 \
   --device="cuda:3" \
