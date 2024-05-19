@@ -11,7 +11,7 @@ with open("requirements.txt", "r", encoding="utf-8") as file:
 
 setup(
     name="kanformer",
-    version="0.0.1",
+    version="0.0.2",
     description="Kanformer is a naive implementation combining Transformers and Kolmogorov-Arnold Networks.",
     long_description=long_description,
     long_description_content_type="text/markdown",
