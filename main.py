@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List, Optional, Union
+from typing import List, Union
 
 import dotenv
 import fire
@@ -19,11 +19,11 @@ from tqdm import tqdm
 
 from kanformer import (
     PositionalEncoding,
-    EncoderDecoderTransformer,
+    TransformerSeq2Seq,
     LRScheduler,
     ModelType,
 )
-from utils import get_summary, initialize_weights, collate_fn
+from utils import get_summary, initialize_weights, collate_fn, bleu_score
 
 
 dotenv.load_dotenv()
@@ -50,8 +50,6 @@ class CLI:
         num_decoder_layers: int = 6,
         vocab_src_size: int = 25000,
         vocab_tgt_size: int = 25000,
-        pad_src_idx: int = 24999,
-        pad_tgt_idx: int = 24999,
         embedding_dim: int = 512,  # `d_model` in paper
         query_key_dim: int = 512,  # `d_k` in paper
         value_dim: int = 512,  # `d_v` in paper
@@ -59,8 +57,7 @@ class CLI:
         ffn_hidden_dim: int = 2048,
         ffn_activation: str = "relu",
         use_kan_bias: bool = True,
-        use_ffn_bias_1: bool = True,
-        use_ffn_bias_2: bool = True,
+        use_pffn_bias: bool = True,
         use_final_linear_bias: bool = False,
         dropout_rate: float = 0.1,
         max_length: int = 10000,
@@ -76,8 +73,10 @@ class CLI:
         experiment_name: str = "transformer",
         checkpoint_steps: int = 500,
         gradient_accumulation_steps: int = 1,
+        device: str = "cuda:0",
         model_type: str = "mlp",
         track_wandb: bool = False,
+        chebykan_degree: int = 4,
     ) -> None:
         r"""Train the transformer model. You can configure various hyperparameters.
 
@@ -104,8 +103,14 @@ class CLI:
             ModelType.MLP,
             ModelType.KAN_ORIGINAL,
             ModelType.KAN_EFFICIENT,
+            ModelType.KAN_CHEBYSHEV,
+            ModelType.KAN_FAST,
         ]:
             raise ValueError(f"Model type {model_type} not supported")
+
+        kwargs = {}
+        if model_type == ModelType.KAN_CHEBYSHEV:
+            kwargs = {"chebykan_degree": chebykan_degree}
 
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -191,10 +196,8 @@ class CLI:
                 data_tensors.append(item)
             data[split] = data_tensors
 
-        if pad_src_idx == -1:
-            pad_src_idx = tokenizer_en.token_to_id(pad_token)
-        if pad_tgt_idx == -1:
-            pad_tgt_idx = tokenizer_de.token_to_id(pad_token)
+        pad_src_idx = tokenizer_en.token_to_id(pad_token)
+        pad_tgt_idx = tokenizer_de.token_to_id(pad_token)
 
         def collate_helper(batch):
             return collate_fn(
@@ -223,7 +226,7 @@ class CLI:
             collate_fn=collate_helper,
         )
 
-        transformer = EncoderDecoderTransformer(
+        transformer = TransformerSeq2Seq(
             num_encoder_layers=num_encoder_layers,
             num_decoder_layers=num_decoder_layers,
             vocab_src_size=vocab_src_size,
@@ -237,13 +240,13 @@ class CLI:
             ffn_hidden_dim=ffn_hidden_dim,
             ffn_activation=ffn_activation,
             use_kan_bias=use_kan_bias,
-            use_ffn_bias_1=use_ffn_bias_1,
-            use_ffn_bias_2=use_ffn_bias_2,
+            use_pffn_bias=use_pffn_bias,
             use_final_linear_bias=use_final_linear_bias,
             dropout_rate=dropout_rate,
             max_length=max_length,
             model_type=model_type,
-        ).to(device="cuda")
+            **kwargs,
+        ).to(device=device)
 
         initialize_weights(transformer, weight_initialization_method)
 
@@ -267,32 +270,42 @@ class CLI:
         if track_wandb:
             wandb.watch(transformer, log="all", log_freq=1000)
 
-        train_losses = []
-        val_losses = []
-        test_losses = []
-        learning_rates = []
+        train_losses, val_losses, test_losses = [], [], []
+        train_bleu_scores, val_bleu_scores, test_bleu_scores = [], [], []
         step = 0
         total_steps = len(train_dataloader) * epochs
+
+        def perform_forward(en_tensors, de_tensors):
+            en_tensors = en_tensors.to(device=device)
+            de_tensors = de_tensors.to(device=device)
+            src_de = de_tensors[:, :-1]
+            tgt_de = de_tensors[:, 1:].contiguous().view(-1)
+
+            optimizer.zero_grad()
+            output = transformer(en_tensors, src_de)
+            loss = criterion(output.contiguous().view(-1, vocab_tgt_size), tgt_de)
+
+            return output, loss
 
         with tqdm(total=total_steps, desc="Training") as train_bar:
             for epoch in range(1, epochs + 1):
                 total_loss = 0.0
+                bleu = 0.0
 
                 transformer.train()
                 for i, (en_tensors, de_tensors) in enumerate(train_dataloader):
-                    en_tensors = en_tensors.to(device="cuda")
-                    de_tensors = de_tensors.to(device="cuda")
-                    src_de = de_tensors[:, :-1]
-                    tgt_de = de_tensors[:, 1:].contiguous().view(-1)
-
-                    optimizer.zero_grad()
-                    output = transformer(en_tensors, src_de)
-                    loss = criterion(
-                        output.contiguous().view(-1, vocab_tgt_size), tgt_de
-                    )
-
+                    output, loss = perform_forward(en_tensors, de_tensors)
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(transformer.parameters(), 1)
+
+                    output_tokens = tokenizer_de.decode_batch(
+                        output.argmax(dim=-1).cpu().numpy(), skip_special_tokens=True
+                    )
+                    tgt_tokens = tokenizer_de.decode_batch(
+                        de_tensors[:, 1:].cpu().numpy(), skip_special_tokens=True
+                    )
+                    tgt_tokens = [[t] for t in tgt_tokens]
+                    bleu += bleu_score(output_tokens, tgt_tokens)
 
                     if (
                         step + 1 == total_steps
@@ -305,8 +318,6 @@ class CLI:
                         optimizer.zero_grad()
 
                     total_loss += loss.item()
-                    # learning_rates.append(lr_scheduler.get_lr())
-                    # lr_scheduler.step()
 
                     step += 1
                     train_bar.update()
@@ -320,21 +331,26 @@ class CLI:
                         )
 
                 train_losses.append(total_loss / len(train_dataloader))
+                train_bleu_scores.append(bleu / len(train_dataloader))
                 wandb_log(
                     {
-                        "train_loss": train_losses[-1],
-                        "train_perplexity": np.exp(train_losses[-1]),
+                        "train/loss": train_losses[-1],
+                        "train/perplexity": np.exp(train_losses[-1]),
+                        "train/bleu": train_bleu_scores[-1],
                     }
                 )
                 print()
                 print(f"Epoch: {epoch}")
                 print(f"Train Loss: [{total_loss=:.3f}] {train_losses[-1]:.3f}")
                 print(f"Perplexity: {np.exp(train_losses[-1]):.3f}")
+                print(f"BLEU Score: {train_bleu_scores[-1] * 100:.3f}")
                 print()
 
                 # val set
                 if (epoch - 1) % validation_epochs == 0:
                     total_loss = 0.0
+                    bleu = 0.0
+
                     transformer.eval()
                     with torch.no_grad():
                         with tqdm(
@@ -343,28 +359,35 @@ class CLI:
                             for i, (en_tensors, de_tensors) in enumerate(
                                 val_dataloader
                             ):
-                                en_tensors = en_tensors.to(device="cuda")
-                                de_tensors = de_tensors.to(device="cuda")
-                                src_de = de_tensors[:, :-1]
-                                tgt_de = de_tensors[:, 1:].contiguous().view(-1)
-
-                                output = transformer(en_tensors, src_de)
-                                loss = criterion(
-                                    output.contiguous().view(-1, vocab_tgt_size), tgt_de
-                                )
+                                output, loss = perform_forward(en_tensors, de_tensors)
                                 total_loss += loss.item()
+
+                                output_tokens = tokenizer_de.decode_batch(
+                                    output.argmax(dim=-1).cpu().numpy(),
+                                    skip_special_tokens=True,
+                                )
+                                tgt_tokens = tokenizer_de.decode_batch(
+                                    de_tensors[:, 1:].cpu().numpy(),
+                                    skip_special_tokens=True,
+                                )
+                                tgt_tokens = [[t] for t in tgt_tokens]
+                                bleu += bleu_score(output_tokens, tgt_tokens)
+
                                 valbar.update()
 
                     val_losses.append(total_loss / len(val_dataloader))
+                    val_bleu_scores.append(bleu / len(val_dataloader))
                     wandb_log(
                         {
-                            "val_loss": val_losses[-1],
-                            "val_perplexity": np.exp(val_losses[-1]),
+                            "val/loss": val_losses[-1],
+                            "val/perplexity": np.exp(val_losses[-1]),
+                            "val/bleu": val_bleu_scores[-1],
                         }
                     )
                     print()
                     print(f"Validation Loss: [{total_loss=:.3f}] {val_losses[-1]:.3f}")
                     print(f"Perplexity: {np.exp(val_losses[-1]):.3f}")
+                    print(f"BLEU Score: {val_bleu_scores[-1] * 100:.3f}")
                     print()
 
                     print("Running inference on validation set")
@@ -382,33 +405,49 @@ class CLI:
                         print()
 
                 total_loss = 0.0
+                bleu = 0.0
+
                 transformer.eval()
                 with torch.no_grad():
                     with tqdm(total=len(test_dataloader), desc="Testing") as testbar:
                         for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
-                            en_tensors = en_tensors.to(device="cuda")
-                            de_tensors = de_tensors.to(device="cuda")
-                            src_de = de_tensors[:, :-1]
-                            tgt_de = de_tensors[:, 1:].contiguous().view(-1)
-
-                            output = transformer(en_tensors, src_de)
-                            loss = criterion(
-                                output.contiguous().view(-1, vocab_tgt_size), tgt_de
-                            )
+                            output, loss = perform_forward(en_tensors, de_tensors)
                             total_loss += loss.item()
+
+                            output_tokens = tokenizer_de.decode_batch(
+                                output.argmax(dim=-1).cpu().numpy(),
+                                skip_special_tokens=True,
+                            )
+                            tgt_tokens = tokenizer_de.decode_batch(
+                                de_tensors[:, 1:].cpu().numpy(),
+                                skip_special_tokens=True,
+                            )
+                            tgt_tokens = [[t] for t in tgt_tokens]
+                            bleu += bleu_score(output_tokens, tgt_tokens)
+
                             testbar.update()
 
                 test_losses.append(total_loss / len(test_dataloader))
+                test_bleu_scores.append(bleu / len(test_dataloader))
                 wandb_log(
                     {
-                        "test_loss": test_losses[-1],
-                        "test_perplexity": np.exp(test_losses[-1]),
+                        "test/loss": test_losses[-1],
+                        "test/perplexity": np.exp(test_losses[-1]),
+                        "test/bleu": test_bleu_scores[-1],
                     }
                 )
                 print()
                 print(f"Test Loss: [{total_loss=:.3f}] {test_losses[-1]:.3f}")
                 print(f"Perplexity: {np.exp(test_losses[-1]):.3f}")
+                print(f"BLEU Score: {test_bleu_scores[-1] * 100:.3f}")
+                print()
 
+        config.update(
+            {
+                "pad_src_idx": pad_src_idx,
+                "pad_tgt_idx": pad_tgt_idx,
+            }
+        )
         with open(os.path.join(experiment_dir, "config.json"), "w") as f:
             json.dump(config, f, indent=4)
 
@@ -418,7 +457,6 @@ class CLI:
                     "train_losses": train_losses,
                     "val_losses": val_losses,
                     "test_losses": test_losses,
-                    "learning_rates": learning_rates,
                 },
                 f,
                 indent=4,
@@ -442,6 +480,7 @@ class CLI:
         temperature: float = 1.0,
         sample: bool = False,
         max_length: int = 100,
+        device: str = "cuda:0",
     ) -> None:
         if isinstance(input, str):
             input = [input]
@@ -450,8 +489,10 @@ class CLI:
         with open(os.path.join(experiment_dir, "config.json"), "r") as f:
             config = json.load(f)
 
-        # read model
-        transformer = EncoderDecoderTransformer(
+        if config["model_type"] == ModelType.KAN_CHEBYSHEV:
+            kwargs = {"chebykan_degree": config["chebykan_degree"]}
+
+        transformer = TransformerSeq2Seq(
             num_encoder_layers=config["num_encoder_layers"],
             num_decoder_layers=config["num_decoder_layers"],
             vocab_src_size=config["vocab_src_size"],
@@ -465,12 +506,13 @@ class CLI:
             ffn_hidden_dim=config["ffn_hidden_dim"],
             ffn_activation=config["ffn_activation"],
             use_kan_bias=config["use_kan_bias"],
-            use_ffn_bias_1=config["use_ffn_bias_1"],
-            use_ffn_bias_2=config["use_ffn_bias_2"],
+            use_pffn_bias=config["use_pffn_bias"],
             use_final_linear_bias=config["use_final_linear_bias"],
             dropout_rate=config["dropout_rate"],
             max_length=max_length,
-        ).to(device="cuda")
+            model_type=config["model_type"],
+            **kwargs,
+        ).to(device=device)
 
         transformer.load_state_dict(
             torch.load(os.path.join(experiment_dir, f"{experiment_name}_final.pth")),
@@ -496,7 +538,7 @@ class CLI:
                     + [eos_token_idx]
                 )
                 en_tensors = torch.tensor([en_tokens], dtype=torch.long).to(
-                    device="cuda"
+                    device=device
                 )
 
                 de_tokens = [sos_token_idx]
@@ -504,7 +546,7 @@ class CLI:
 
                 for _ in range(max_length - 1):
                     de_tensors = torch.tensor([de_tokens], dtype=torch.long).to(
-                        device="cuda"
+                        device=device
                     )
                     logits = transformer.decode(en_tensors, de_tensors, memory)
                     logits /= temperature

@@ -5,8 +5,6 @@ from .models.transformer import (
     PositionwiseFeedForward,
     DecoderBlock,
     EncoderBlock,
-    DecoderTransformer,
-    EncoderTransformer,
-    EncoderDecoderTransformer,
+    TransformerSeq2Seq,
 )
 from .config import ModelType

@@ -2,9 +2,7 @@ import torch.optim as optim
 
 
 class LRScheduler(optim.lr_scheduler.LRScheduler):
-    def __init__(
-        self, optimizer, embedding_dim: int, warmup_steps: int = 4000
-    ) -> None:
+    def __init__(self, optimizer, embedding_dim: int, warmup_steps: int = 4000) -> None:
         self.embedding_dim = embedding_dim
         self.warmup_steps = warmup_steps
         super().__init__(optimizer)

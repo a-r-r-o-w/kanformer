@@ -15,8 +15,8 @@ class ScaledDotProductAttention(nn.Module):
     r"""ScaledDotProductAttention (Section 3.2.1 of paper).
 
     Args:
-        embedding_dim (`int`):
-        temperature (`float`, *optional*):
+        query_key_dim (`int`)
+            The dimension of query and key vectors (d_k in the paper).
     """
 
     def __init__(self, query_key_dim: int) -> None:
@@ -65,6 +65,20 @@ class MultiHeadAttention(nn.Module):
     r"""Multi-Head Attention (Section 3.2.2 of paper).
 
     Args:
+        embedding_dim (`int`):
+            The dimension of the embedding space (d_model in paper).
+        query_key_dim (`int`):
+            The dimension of the query and key vectors (d_k in paper).
+        value_dim (`int`):
+            The dimension of the value vectors (d_v in paper).
+        num_heads (`int`):
+            The number of heads (h in paper).
+        use_final_linear_mha_bias (`bool`, optional):
+            Whether to use bias in the final linear layer of multi-head attention. Defaults to `False`.
+        use_kan_bias (`bool`, optional):
+            Whether to use KAN bias. Defaults to `False`.
+        model_type (`ModelType`, optional):
+            The type of model to use. Defaults to `ModelType.MLP`.
     """
 
     def __init__(
@@ -123,4 +137,5 @@ class MultiHeadAttention(nn.Module):
 
         # 4. Linear
         x = self.ff_proj(x)
+
         return x

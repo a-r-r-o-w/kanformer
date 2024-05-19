@@ -4,3 +4,9 @@
 [submodule "src/efficient-kan"]
 	path = src/efficient_kan
 	url = https://github.com/a-r-r-o-w/efficient-kan
+[submodule "chebykan"]
+	path = src/chebykan
+	url = https://github.com/SynodicMonth/ChebyKAN
+[submodule "src/fastkan"]
+	path = src/fastkan
+	url = https://github.com/ZiyaoLi/fast-kan
