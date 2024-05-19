@@ -281,11 +281,20 @@ class CLI:
             src_de = de_tensors[:, :-1]
             tgt_de = de_tensors[:, 1:].contiguous().view(-1)
 
-            optimizer.zero_grad()
             output = transformer(en_tensors, src_de)
             loss = criterion(output.contiguous().view(-1, vocab_tgt_size), tgt_de)
 
             return output, loss
+
+        def calculate_bleu_score(output_tensors, tgt_tensors):
+            output_tokens = tokenizer_de.decode_batch(
+                output_tensors.argmax(dim=-1).cpu().numpy(), skip_special_tokens=True
+            )
+            tgt_tokens = tokenizer_de.decode_batch(
+                tgt_tensors[:, 1:].cpu().numpy(), skip_special_tokens=True
+            )
+            tgt_tokens = [[t] for t in tgt_tokens]
+            return bleu_score(output_tokens, tgt_tokens)
 
         with tqdm(total=total_steps, desc="Training") as train_bar:
             for epoch in range(1, epochs + 1):
@@ -296,16 +305,9 @@ class CLI:
                 for i, (en_tensors, de_tensors) in enumerate(train_dataloader):
                     output, loss = perform_forward(en_tensors, de_tensors)
                     loss.backward()
+                    total_loss += loss.item()
                     torch.nn.utils.clip_grad_norm_(transformer.parameters(), 1)
-
-                    output_tokens = tokenizer_de.decode_batch(
-                        output.argmax(dim=-1).cpu().numpy(), skip_special_tokens=True
-                    )
-                    tgt_tokens = tokenizer_de.decode_batch(
-                        de_tensors[:, 1:].cpu().numpy(), skip_special_tokens=True
-                    )
-                    tgt_tokens = [[t] for t in tgt_tokens]
-                    bleu += bleu_score(output_tokens, tgt_tokens)
+                    bleu += calculate_bleu_score(output, de_tensors)
 
                     if (
                         step + 1 == total_steps
@@ -316,8 +318,6 @@ class CLI:
                                 param.grad /= gradient_accumulation_steps
                         optimizer.step()
                         optimizer.zero_grad()
-
-                    total_loss += loss.item()
 
                     step += 1
                     train_bar.update()
@@ -346,7 +346,6 @@ class CLI:
                 print(f"BLEU Score: {train_bleu_scores[-1] * 100:.3f}")
                 print()
 
-                # val set
                 if (epoch - 1) % validation_epochs == 0:
                     total_loss = 0.0
                     bleu = 0.0
@@ -361,18 +360,7 @@ class CLI:
                             ):
                                 output, loss = perform_forward(en_tensors, de_tensors)
                                 total_loss += loss.item()
-
-                                output_tokens = tokenizer_de.decode_batch(
-                                    output.argmax(dim=-1).cpu().numpy(),
-                                    skip_special_tokens=True,
-                                )
-                                tgt_tokens = tokenizer_de.decode_batch(
-                                    de_tensors[:, 1:].cpu().numpy(),
-                                    skip_special_tokens=True,
-                                )
-                                tgt_tokens = [[t] for t in tgt_tokens]
-                                bleu += bleu_score(output_tokens, tgt_tokens)
-
+                                bleu += calculate_bleu_score(output, de_tensors)
                                 valbar.update()
 
                     val_losses.append(total_loss / len(val_dataloader))
@@ -413,18 +401,7 @@ class CLI:
                         for i, (en_tensors, de_tensors) in enumerate(test_dataloader):
                             output, loss = perform_forward(en_tensors, de_tensors)
                             total_loss += loss.item()
-
-                            output_tokens = tokenizer_de.decode_batch(
-                                output.argmax(dim=-1).cpu().numpy(),
-                                skip_special_tokens=True,
-                            )
-                            tgt_tokens = tokenizer_de.decode_batch(
-                                de_tensors[:, 1:].cpu().numpy(),
-                                skip_special_tokens=True,
-                            )
-                            tgt_tokens = [[t] for t in tgt_tokens]
-                            bleu += bleu_score(output_tokens, tgt_tokens)
-
+                            bleu += calculate_bleu_score(output, de_tensors)
                             testbar.update()
 
                 test_losses.append(total_loss / len(test_dataloader))
@@ -457,6 +434,9 @@ class CLI:
                     "train_losses": train_losses,
                     "val_losses": val_losses,
                     "test_losses": test_losses,
+                    "train_bleu_scores": train_bleu_scores,
+                    "val_bleu_scores": val_bleu_scores,
+                    "test_bleu_scores": test_bleu_scores,
                 },
                 f,
                 indent=4,
