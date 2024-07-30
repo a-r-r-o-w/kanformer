@@ -10,3 +10,4 @@ torch==2.2.2
 tokenizers==0.19.1
 transformers==4.40.0
 wandb==0.17.0
+datasets
